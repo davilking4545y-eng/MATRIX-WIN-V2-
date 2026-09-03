@@ -1,6 +1,6 @@
 {
-  "name": "Matrix Win V2",
-  "description": "High-performance real-time telemetry, predictive matrix analytics, and interactive win-rate visualization terminal.",
+  "name": "",
+  "description": "",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
