@@ -3,7 +3,7 @@
 
 import { AuthSession } from '../types';
 
-export const MASTER_KEY = 'MATRIXV2743235';
+export const MASTER_KEY = 'RUPADHIKARY';
 const RTDB_BASE_URL = 'https://key-manager-623e1-default-rtdb.asia-southeast1.firebasedatabase.app';
 const SESSION_STORAGE_KEY = 'matrix_v2_auth_session';
 const DEVICE_ID_KEY = 'elite_device_id';
@@ -24,36 +24,14 @@ export function getOrCreateDeviceId(): string {
 }
 
 export function getStoredSession(): AuthSession | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const session: AuthSession = JSON.parse(raw);
-    if (!session || !session.authenticated) return null;
-
-    // If owner, session is permanent
-    if (session.role === 'owner') {
-      return session;
-    }
-
-    // If member, check if key is expired
-    if (session.expiryDate) {
-      const exp = new Date(session.expiryDate).getTime();
-      if (!isNaN(exp) && Date.now() > exp) {
-        clearSession();
-        return null;
-      }
-    }
-    return session;
-  } catch {
-    return null;
-  }
+  // Requirement: Har bar refresh kerne pe Login key mange (prompt for login key on every refresh)
+  return null;
 }
 
 export function saveSession(session: AuthSession): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
   } catch (err) {
     console.warn('Could not save auth session:', err);
   }
@@ -63,6 +41,7 @@ export function clearSession(): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
   } catch {}
 }
 
@@ -81,11 +60,11 @@ export async function authenticateKey(inputKey: string): Promise<AuthResult> {
   }
 
   // 1. MASTER KEY VERIFICATION (Owner Bypass)
-  if (trimmed === MASTER_KEY) {
+  if (trimmed.toUpperCase() === MASTER_KEY.toUpperCase()) {
     const session: AuthSession = {
       authenticated: true,
       role: 'owner',
-      accessKey: trimmed,
+      accessKey: MASTER_KEY,
       deviceId,
       loginTime: new Date().toISOString(),
       expiryDate: undefined, // Lifetime
@@ -169,9 +148,10 @@ export async function authenticateKey(inputKey: string): Promise<AuthResult> {
       console.warn('Telemetry write warning:', writeErr);
     }
 
+    const isOwnerRole = keyData.role === 'owner' || keyData.isOwner === true;
     const session: AuthSession = {
       authenticated: true,
-      role: 'member',
+      role: isOwnerRole ? 'owner' : 'member',
       accessKey: trimmed,
       deviceId,
       loginTime: new Date().toISOString(),

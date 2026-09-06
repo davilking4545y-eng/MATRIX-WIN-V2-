@@ -195,31 +195,60 @@ class SoundFX {
       });
     } catch {}
   }
+
+  // Triumphant Grand Jackpot Fanfare
+  public playJackpotFanfare() {
+    if (!this.enabled) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      // Arpeggio + triumphant chords: C5, E5, G5, C6, E6, G6
+      const freqs = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98];
+      freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        const start = now + i * 0.07;
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.1, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.6);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.6);
+      });
+    } catch {}
+  }
 }
 
 export const soundFx = new SoundFX();
 
 /**
  * Speech synthesis voice announcement:
- * "WELCOME TO MATRIX WIN V2"
+ * Custom voice message based on role:
+ * For Owner: "WELCOME BOSS, RUP ADHIKARY. ACCESS GRANTED TO MATRIX WIN V2"
+ * For Normal Member: "WELCOME TO MATRIX WIN V2"
  */
-export function speakWelcomeMatrix(): void {
+export function speakWelcomeMatrix(isOwner: boolean = false): void {
   if (typeof window === 'undefined') return;
 
   try {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel(); // cancel any ongoing speech
-      const text = 'WELCOME TO MATRIX WIN V2';
+      const text = isOwner
+        ? 'WELCOME BOSS, RUP ADHIKARY. ACCESS GRANTED TO MATRIX WIN V2'
+        : 'WELCOME TO MATRIX WIN V2';
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
+      utterance.rate = isOwner ? 0.92 : 0.95;
+      utterance.pitch = isOwner ? 1.0 : 1.05;
       utterance.volume = 1;
 
       // Prefer a natural, clear English voice
       const voices = window.speechSynthesis.getVoices();
       if (voices && voices.length > 0) {
         const preferred =
-          voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Daniel'))) ||
+          voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Arthur'))) ||
           voices.find((v) => v.lang.startsWith('en'));
         if (preferred) {
           utterance.voice = preferred;
@@ -230,5 +259,54 @@ export function speakWelcomeMatrix(): void {
     }
   } catch (err) {
     console.warn('Speech synthesis invocation note:', err);
+  }
+}
+
+/**
+ * Voice Announcement for Round Outcome:
+ * WIN / JACKPOT / LOSS
+ */
+export function speakOutcomeAnnouncement(
+  status: 'JACKPOT' | 'WIN' | 'LOSS',
+  issueNumber: string,
+  actualNumber?: number,
+  actualSize?: string
+): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel(); // Cancel any ongoing speech
+
+      const shortIssue = issueNumber ? issueNumber.slice(-4) : '';
+      let text = '';
+
+      if (status === 'JACKPOT') {
+        text = `JACKPOT HIT! Direct number ${actualNumber !== undefined ? actualNumber : ''} matched on period ${shortIssue}! Incredible win!`;
+      } else if (status === 'WIN') {
+        text = `WINNER! Target ${actualSize || ''} won on period ${shortIssue}! Prediction successful!`;
+      } else {
+        text = `ROUND LOSS on period ${shortIssue}. Result was ${actualSize || ''} ${actualNumber !== undefined ? actualNumber : ''}. Recalibrating matrix.`;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = status === 'JACKPOT' ? 0.96 : 0.98;
+      utterance.pitch = status === 'JACKPOT' ? 1.15 : status === 'WIN' ? 1.05 : 0.92;
+      utterance.volume = 1;
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        const preferred =
+          voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Arthur'))) ||
+          voices.find((v) => v.lang.startsWith('en'));
+        if (preferred) {
+          utterance.voice = preferred;
+        }
+      }
+
+      window.speechSynthesis.speak(utterance);
+    }
+  } catch (err) {
+    console.warn('Speech synthesis outcome note:', err);
   }
 }

@@ -1,12 +1,13 @@
 import React from 'react';
-import { Trophy, Flame, Activity, Zap, CheckCircle2 } from 'lucide-react';
-import { PredictionTelemetry, ThemeConfig } from '../types';
+import { Trophy, Flame, Activity, Zap, CheckCircle2, Cpu } from 'lucide-react';
+import { PredictionTelemetry, ThemeConfig, WinGoPrediction } from '../types';
 
 interface MetricCardsProps {
   telemetry: PredictionTelemetry;
   detectedPattern: string;
   nextIssue: string;
   activeTheme?: ThemeConfig;
+  prediction?: WinGoPrediction | null;
 }
 
 export const MetricCards: React.FC<MetricCardsProps> = ({
@@ -14,6 +15,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({
   detectedPattern,
   nextIssue,
   activeTheme,
+  prediction,
 }) => {
   const winRate = telemetry.totalRounds > 0
     ? telemetry.winRate.toFixed(1)
@@ -98,28 +100,50 @@ export const MetricCards: React.FC<MetricCardsProps> = ({
         </div>
       </div>
 
-      {/* 3. DETECTED ALGO PATTERN */}
+      {/* 3. ACTIVE PREDICTION LOGIC */}
       <div
-        className="rounded-xl p-3.5 backdrop-blur-md relative overflow-hidden flex flex-col justify-between border shadow-lg transition-colors"
+        className="rounded-xl p-3.5 backdrop-blur-md relative overflow-hidden flex flex-col justify-between border shadow-lg transition-colors group hover:border-[#00E5FF]/60"
         style={{ background: cardBg, borderColor: border }}
       >
         <div className="flex items-center justify-between text-xs text-[#888888] font-mono mb-1">
           <span className="flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-[#00E5FF]" />
-            <span className="tracking-wider text-[10px] uppercase font-bold text-[#00E5FF]">TRIAD DETECTED</span>
+            <Cpu className="w-3.5 h-3.5 text-[#00E5FF] animate-pulse" />
+            <span className="tracking-wider text-[10px] uppercase font-bold text-[#00E5FF]">
+              PREDICTION LOGIC
+            </span>
           </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-300 font-mono font-bold border border-sky-800/60">
-            93% WEIGHT
-          </span>
-        </div>
-        <div className="flex items-baseline">
-          <span className="text-sm sm:text-base font-bold font-mono text-white tracking-tight truncate">
-            {detectedPattern || 'Triad Historical Resonance'}
+          <span className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-sky-950/70 text-cyan-300 font-mono font-extrabold border border-cyan-500/40 truncate max-w-[100px]">
+            {prediction?.phaseLabel ? prediction.phaseLabel : `${prediction?.sizeConfidence || 95}% CONF`}
           </span>
         </div>
-        <div className="text-[11px] text-[#888888] font-mono mt-2 flex items-center justify-between">
-          <span>Scan Depth:</span>
-          <span className="text-[#00E5FF] font-bold">50 Draws</span>
+
+        {/* Main Logic Name Display */}
+        <div className="my-0.5">
+          <div
+            className="text-xs sm:text-sm font-black font-mono text-white tracking-tight leading-snug line-clamp-1"
+            title={prediction?.engineName || prediction?.modelName || 'Neural Ensemble Tensor'}
+          >
+            {prediction?.engineName || prediction?.modelName || 'Neural Ensemble Tensor'}
+          </div>
+          <div
+            className="text-[10px] sm:text-[11px] font-mono text-[#00E5FF] truncate mt-0.5 font-semibold"
+            title={prediction?.pattern || detectedPattern || 'Triad Historical Resonance'}
+          >
+            {prediction?.pattern || detectedPattern || 'Triad Historical Resonance'}
+          </div>
+        </div>
+
+        {/* Sub-detail Row */}
+        <div className="text-[10px] sm:text-[11px] text-[#888888] font-mono mt-1.5 pt-1.5 border-t border-white/5 flex items-center justify-between gap-1">
+          <span className="text-[#888888] truncate">
+            {prediction?.dragonCount && prediction.dragonCount > 1
+              ? `${prediction.dragonCount}x Dragon Wave`
+              : 'Tensor Logic'}
+          </span>
+          <span className="text-emerald-400 font-bold flex items-center gap-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+            LIVE
+          </span>
         </div>
       </div>
 

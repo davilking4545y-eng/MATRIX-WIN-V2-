@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   WinGoIssue,
   WinGoPrediction,
+  WinGoSize,
   PredictionHistoryRecord,
   PredictionTelemetry,
   PredictionStrategy,
@@ -9,28 +10,37 @@ import {
   AppThemeId,
 } from './types';
 import { THEMES } from './utils/themes';
-import { soundFx } from './utils/audio';
 import {
   fetchGameResult,
   generateWinGoPrediction,
   generateHistoricalAuditStream,
 } from './utils/predictionEngine';
+import { immutableLedger } from './utils/immutableLedger';
 import { MatrixRainCanvas } from './components/MatrixRainCanvas';
 import { Header } from './components/Header';
 import { MetricCards } from './components/MetricCards';
 import { NextPredictionHero } from './components/NextPredictionHero';
 import { LiveTickChart } from './components/LiveTickChart';
-import { PatternAnalyzer } from './components/PatternAnalyzer';
 import { PredictionHistoryTable } from './components/PredictionHistoryTable';
 import { ThemeSelectorModal } from './components/ThemeSelectorModal';
+import { OutcomeModal } from './components/OutcomeModal';
 import { LoginPage } from './components/LoginPage';
 import { triggerConfetti } from './utils/confetti';
 import { AuthSession } from './types';
-import { getStoredSession, clearSession } from './services/authService';
+import { clearSession } from './services/authService';
+import { useActivePresence } from './services/presenceService';
+import { soundFx, speakOutcomeAnnouncement } from './utils/audio';
 
 export default function App() {
-  // 0. Authentication Session State (persisted with Master Key override and Firebase RTDB)
-  const [authSession, setAuthSession] = useState<AuthSession | null>(() => getStoredSession());
+  // 0. Authentication Session State: Starts as null on every page load/refresh as requested
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+
+  // Active Users Presence: Heartbeats for all active sessions; syncs real-time count for Owner
+  const activeUsersCount = useActivePresence(
+    Boolean(authSession),
+    authSession?.role,
+    authSession?.deviceId || ''
+  );
 
   // 1. Theme State (persisted in localStorage)
   const [currentThemeId, setCurrentThemeId] = useState<AppThemeId>(() => {
@@ -44,12 +54,14 @@ export default function App() {
 
   // Modal Dialog States
   const [isThemeModalOpen, setIsThemeModalOpen] = useState<boolean>(false);
+  const [outcomeModalRecord, setOutcomeModalRecord] = useState<PredictionHistoryRecord | null>(null);
+  const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState<boolean>(false);
 
   // 3. Data State
   const [issues, setIssues] = useState<WinGoIssue[]>([]);
   const [prediction, setPrediction] = useState<WinGoPrediction | null>(null);
   const [historyRecords, setHistoryRecords] = useState<PredictionHistoryRecord[]>([]);
-  const [strategy, setStrategy] = useState<PredictionStrategy>('neural_ensemble');
+  const [strategy, setStrategy] = useState<PredictionStrategy>('matrix_win_v2');
 
   // 4. Network & UI State
   const [isFetching, setIsFetching] = useState<boolean>(false);
@@ -65,7 +77,7 @@ export default function App() {
     autoRunner: false,
     autoRunnerSpeedMs: 1000,
     stake: 10,
-    strategy: 'neural_ensemble',
+    strategy: 'matrix_win_v2',
     targetMultiplier: 2.0,
   });
 
@@ -133,6 +145,8 @@ export default function App() {
   // Ref to track last seen drawn issue so we can evaluate new outcomes
   const lastEvaluatedIssueRef = useRef<string>('');
   const lastActivePredictionRef = useRef<WinGoPrediction | null>(null);
+  // Persistent locked predictions map: Once prediction is generated for a target period, NEVER change it!
+  const lockedPredictionsRef = useRef<Map<string, WinGoPrediction>>(new Map());
 
   // Core API Fetch and Prediction Generator
   const syncWinGoData = useCallback(async () => {
@@ -152,32 +166,119 @@ export default function App() {
         const target = calculateNextIssueNumber(topIssue);
         setNextIssue(target);
 
-        // Generate high-accuracy prediction for the next period
-        const newPred = generateWinGoPrediction(data, strategy);
-        setPrediction(newPred);
+        // PREDICTION LOCK-IN GUARD:
+        // Once a prediction is calculated for a period, it is locked in and NEVER changes during polling
+        let currentTargetPred = lockedPredictionsRef.current.get(target) || immutableLedger.getLockedPrediction(target);
+        if (!currentTargetPred) {
+          currentTargetPred = generateWinGoPrediction(data, strategy);
+          lockedPredictionsRef.current.set(target, currentTargetPred);
+          immutableLedger.saveLockedPrediction(target, currentTargetPred);
+        }
+        setPrediction(currentTargetPred);
 
         // Check if a new drawn issue has arrived since our previous prediction
         if (lastEvaluatedIssueRef.current && lastEvaluatedIssueRef.current !== topIssue) {
-          const stream = generateHistoricalAuditStream(data, strategy);
-          setHistoryRecords(stream);
-          const latestRec = stream[0];
+          // Look up the exact locked prediction that was made for topIssue
+          const activePred =
+            lockedPredictionsRef.current.get(topIssue) ||
+            immutableLedger.getLockedPrediction(topIssue) ||
+            lastActivePredictionRef.current;
+
+          let latestRec = immutableLedger.getRecord(topIssue);
+
+          if (!latestRec) {
+            const actualItem = data[0];
+            const actualNum = parseInt(actualItem.number, 10);
+            const actualSize: WinGoSize = actualNum >= 5 ? 'BIG' : 'SMALL';
+            const actualColor = actualItem.color ? actualItem.color.toUpperCase() : (actualNum % 2 === 1 ? 'GREEN' : 'RED');
+
+            const predToUse =
+              activePred && (activePred.targetIssue === topIssue || !activePred.targetIssue)
+                ? activePred
+                : generateWinGoPrediction(data.slice(1), strategy);
+
+            const isJackpot = actualNum === predToUse.primaryNum || actualNum === predToUse.hedgeNum;
+            const isSizeWin = !isJackpot && actualSize === predToUse.size;
+            const status: 'JACKPOT' | 'WIN' | 'LOSS' = isJackpot ? 'JACKPOT' : isSizeWin ? 'WIN' : 'LOSS';
+            const isWin = status === 'JACKPOT' || status === 'WIN';
+
+            latestRec = {
+              issueNumber: topIssue,
+              actualNumber: actualNum,
+              actualSize,
+              actualColor,
+              predictedSize: predToUse.size,
+              predictedColor: predToUse.color,
+              primaryNum: predToUse.primaryNum,
+              hedgeNum: predToUse.hedgeNum,
+              level: 1,
+              levelMultiplier: 'L1 (1X)',
+              status,
+              isWin,
+              confidence: predToUse.sizeConfidence,
+              pattern: predToUse.pattern,
+              modelName: predToUse.modelName || 'MATRIX WIN V2 ENGINE',
+              timestamp: Date.now(),
+            };
+
+            // CRITICAL: PERMANENTLY FREEZE IN IMMUTABLE LEDGER SO IT NEVER FLIPS
+            immutableLedger.saveRecord(latestRec);
+          }
+
+          // Reconcile stream from immutable ledger so past records are NEVER shifted or recalculated
+          const updatedStream = immutableLedger.reconcileAuditStream(data);
+          setHistoryRecords(updatedStream);
+
           const isWin = latestRec ? latestRec.isWin : true;
 
-          if (isWin) {
-            soundFx.playWin(true);
-            triggerConfetti({
-              particleCount: 90,
-              spread: 75,
-              origin: { y: 0.6 },
-              colors: [activeTheme.primary, activeTheme.secondary, activeTheme.gold, '#FFFFFF'],
-            });
-          } else {
-            soundFx.playLoss();
+          if (latestRec) {
+            // Trigger Outcome Modal Pop-Up
+            setOutcomeModalRecord(latestRec);
+            setIsOutcomeModalOpen(true);
+
+            // Trigger Voice Announcement & Sound FX based strictly on JACKPOT / WIN / LOSS
+            if (latestRec.status === 'JACKPOT') {
+              soundFx.playJackpotFanfare();
+              triggerConfetti({
+                particleCount: 140,
+                spread: 90,
+                origin: { y: 0.5 },
+                colors: ['#F59E0B', '#EAB308', '#FFFFFF', activeTheme.primary],
+              });
+              speakOutcomeAnnouncement(
+                'JACKPOT',
+                latestRec.issueNumber,
+                latestRec.actualNumber,
+                latestRec.actualSize
+              );
+            } else if (latestRec.status === 'WIN') {
+              soundFx.playWin(false);
+              triggerConfetti({
+                particleCount: 90,
+                spread: 75,
+                origin: { y: 0.6 },
+                colors: [activeTheme.primary, '#10B981', '#00E5FF', '#FFFFFF'],
+              });
+              speakOutcomeAnnouncement(
+                'WIN',
+                latestRec.issueNumber,
+                latestRec.actualNumber,
+                latestRec.actualSize
+              );
+            } else {
+              soundFx.playLoss();
+              speakOutcomeAnnouncement(
+                'LOSS',
+                latestRec.issueNumber,
+                latestRec.actualNumber,
+                latestRec.actualSize
+              );
+            }
           }
 
           setTelemetry((prev) => {
-            const totalRounds = stream.length;
-            const totalWins = stream.filter((r) => r.isWin).length;
+            const totalRounds = updatedStream.length;
+            const totalWins = updatedStream.filter((r) => r.isWin).length;
             const winRate = parseFloat(((totalWins / totalRounds) * 100).toFixed(1));
             const currentStreak = isWin ? prev.currentStreak + 1 : 0;
             const maxStreak = Math.max(prev.maxStreak, currentStreak);
@@ -193,27 +294,32 @@ export default function App() {
               accuracyTrend: [...prev.accuracyTrend.slice(-15), winRate],
             };
           });
+
+          // Trim locked map to avoid memory accumulation
+          if (lockedPredictionsRef.current.size > 30) {
+            const keys = Array.from(lockedPredictionsRef.current.keys());
+            for (let k = 0; k < keys.length - 20; k++) {
+              lockedPredictionsRef.current.delete(keys[k]);
+            }
+          }
         }
 
         // Keep references updated
         lastEvaluatedIssueRef.current = topIssue;
-        lastActivePredictionRef.current = newPred;
+        lastActivePredictionRef.current = currentTargetPred;
 
-        // Initialize history records on first load from API data if history is empty
-        setHistoryRecords((prevHistory) => {
-          if (prevHistory.length === 0 && data.length >= 2) {
-            const stream = generateHistoricalAuditStream(data, strategy);
-            const wins = stream.filter((r) => r.isWin).length;
-            const rate = stream.length > 0 ? parseFloat(((wins / stream.length) * 100).toFixed(1)) : 93.6;
-            setTelemetry((prev) => ({
-              ...prev,
-              totalRounds: stream.length,
-              totalWins: wins,
-              winRate: rate,
-            }));
-            return stream;
-          }
-          return prevHistory;
+        // Initialize or reconcile history records from immutable ledger
+        setHistoryRecords(() => {
+          const stream = immutableLedger.reconcileAuditStream(data);
+          const wins = stream.filter((r) => r.isWin).length;
+          const rate = stream.length > 0 ? parseFloat(((wins / stream.length) * 100).toFixed(1)) : 93.6;
+          setTelemetry((prev) => ({
+            ...prev,
+            totalRounds: stream.length,
+            totalWins: wins,
+            winRate: rate,
+          }));
+          return stream;
         });
       }
     } catch (err) {
@@ -244,6 +350,10 @@ export default function App() {
     setStrategy(newStrategy);
     if (issues.length > 0) {
       const pred = generateWinGoPrediction(issues, newStrategy);
+      if (nextIssue) {
+        lockedPredictionsRef.current.set(nextIssue, pred);
+        immutableLedger.saveLockedPrediction(nextIssue, pred);
+      }
       setPrediction(pred);
       lastActivePredictionRef.current = pred;
     }
@@ -316,6 +426,7 @@ export default function App() {
         activeTheme={activeTheme}
         onOpenThemeModal={() => setIsThemeModalOpen(true)}
         authSession={authSession}
+        activeUsersCount={activeUsersCount}
         onLogout={() => {
           clearSession();
           setAuthSession(null);
@@ -330,6 +441,7 @@ export default function App() {
           detectedPattern={prediction?.pattern || 'Triad Historical Resonance'}
           nextIssue={nextIssue}
           activeTheme={activeTheme}
+          prediction={prediction}
         />
 
         {/* Next Issue Hero Prediction Card */}
@@ -343,21 +455,9 @@ export default function App() {
           activeTheme={activeTheme}
         />
 
-        {/* Two-Column Telemetry & Analysis Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* WinGo Trajectory Oscillogram (7 cols) */}
-          <div className="lg:col-span-7 flex flex-col gap-4">
-            <LiveTickChart issues={issues} isStreaming={true} />
-          </div>
-
-          {/* 0-9 Digit Frequency & 3X Recovery Assistant (5 cols) */}
-          <div className="lg:col-span-5 flex flex-col gap-4">
-            <PatternAnalyzer
-              issues={issues}
-              latestIssue={latestIssue}
-              activeTheme={activeTheme}
-            />
-          </div>
+        {/* Real-time Oscillogram Telemetry */}
+        <div className="w-full flex flex-col gap-4">
+          <LiveTickChart issues={issues} isStreaming={true} />
         </div>
 
         {/* Historical Draw & Prediction Verification Feed */}
@@ -365,6 +465,16 @@ export default function App() {
           historyRecords={historyRecords}
           activeTheme={activeTheme}
           onResetStream={handleResetStream}
+          onSelectRecord={(rec) => {
+            setOutcomeModalRecord(rec);
+            setIsOutcomeModalOpen(true);
+            speakOutcomeAnnouncement(
+              rec.status,
+              rec.issueNumber,
+              rec.actualNumber,
+              rec.actualSize
+            );
+          }}
         />
       </main>
 
@@ -409,6 +519,15 @@ export default function App() {
         onClose={() => setIsThemeModalOpen(false)}
         currentThemeId={currentThemeId}
         onSelectTheme={handleSelectTheme}
+      />
+
+      {/* 7. Outcome Pop-Up Modal (Win / Jackpot / Loss + Voice Announcement) */}
+      <OutcomeModal
+        record={outcomeModalRecord}
+        isOpen={isOutcomeModalOpen}
+        onClose={() => setIsOutcomeModalOpen(false)}
+        activeTheme={activeTheme}
+        currentStreak={telemetry.currentStreak}
       />
     </div>
   );

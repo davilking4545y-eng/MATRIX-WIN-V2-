@@ -26,7 +26,17 @@ export interface WinGoIssue {
 
 export type WinGoSize = 'BIG' | 'SMALL';
 export type WinGoColor = 'GREEN' | 'RED';
-export type PredictionStrategy = 'neural_ensemble' | 'safe_dragon' | 'aggressive_trend' | 'contrarian_reversal';
+export type PredictionStrategy =
+  | 'matrix_win_v2'
+  | 'neural_ensemble'
+  | 'dragon_strike'
+  | 'deepseek_fluid'
+  | 'ronin_vip'
+  | 'single_number_12'
+  | 'ultimate_pro'
+  | 'safe_dragon'
+  | 'aggressive_trend'
+  | 'contrarian_reversal';
 
 export interface WinGoPrediction {
   targetIssue: string;
@@ -48,6 +58,15 @@ export interface WinGoPrediction {
   actualNumber?: number;
   actualSize?: WinGoSize;
   actualColor?: string;
+  phaseLabel?: string;
+  dragonCount?: number;
+  engineName?: string;
+  singleNumber?: number;
+  hotDigits?: number[];
+  coldDigits?: number[];
+  martingaleLevel?: number;
+  martingaleMultiplier?: string;
+  engineVotes?: { name: string; vote: WinGoSize; confidence: number }[];
 }
 
 export type HistoryRecordStatus = 'JACKPOT' | 'WIN' | 'LOSS';

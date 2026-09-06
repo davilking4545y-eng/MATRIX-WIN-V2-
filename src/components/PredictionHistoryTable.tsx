@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PredictionHistoryRecord, ThemeConfig } from '../types';
+import { PredictionHistoryRecord, ThemeConfig, WinGoSize } from '../types';
 import {
   History as HistoryIcon,
   RotateCcw,
@@ -16,12 +16,14 @@ interface PredictionHistoryTableProps {
   historyRecords: PredictionHistoryRecord[];
   activeTheme?: ThemeConfig;
   onResetStream?: () => void;
+  onSelectRecord?: (record: PredictionHistoryRecord) => void;
 }
 
 export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
   historyRecords,
   activeTheme,
   onResetStream,
+  onSelectRecord,
 }) => {
   const [filter, setFilter] = useState<'all' | 'wins' | 'jackpots' | 'losses'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,8 +31,8 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
   const border = activeTheme?.border || 'rgba(0,255,65,0.25)';
   const cardBg = activeTheme?.cardBg || '#050a0e';
 
-  // Compute live harmonic metrics for top 2 status cards
-  const recentRecords = historyRecords.slice(0, 30);
+  // Compute live harmonic metrics for top 2 status cards based on 15 draws
+  const recentRecords = historyRecords.slice(0, 15);
   const bigCount = recentRecords.filter((r) => r.actualSize === 'BIG').length;
   const rawBigPct = recentRecords.length > 0 ? Math.round((bigCount / recentRecords.length) * 100) : 68;
   const digitFreqPct = Math.max(58, Math.min(88, rawBigPct));
@@ -40,11 +42,16 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
   const rawSmallPct = recentRecords.length > 0 ? Math.round((smallCount / recentRecords.length) * 100) : 86;
   const parityHarmonicPct = 86;
 
-  // Filter records
+  // Filter records with strict mathematical truth
   const filtered = historyRecords.filter((rec) => {
-    if (filter === 'wins' && !rec.isWin) return false;
-    if (filter === 'jackpots' && rec.status !== 'JACKPOT') return false;
-    if (filter === 'losses' && rec.isWin) return false;
+    const num = rec.actualNumber;
+    const actualCalculatedSize: WinGoSize = num >= 5 ? 'BIG' : 'SMALL';
+    const isJackpot = num === rec.primaryNum || num === rec.hedgeNum || rec.status === 'JACKPOT';
+    const isSizeWin = !isJackpot && (actualCalculatedSize === rec.predictedSize || rec.status === 'WIN');
+
+    if (filter === 'wins' && !isSizeWin) return false;
+    if (filter === 'jackpots' && !isJackpot) return false;
+    if (filter === 'losses' && (isSizeWin || isJackpot)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       const drawShort = rec.issueNumber.slice(-4);
@@ -52,6 +59,9 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
     }
     return true;
   });
+
+  // Exactly 15 recent history records as requested
+  const displayRecords = filtered.slice(0, 15);
 
   const handleReset = () => {
     soundFx.playClick();
@@ -171,24 +181,24 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
         </div>
       </div>
 
-      {/* Main Historical Audit Stream Card - Compact & zero horizontal scrolling */}
+      {/* Main Historical Audit Stream Card - Expanded Large Box to fit all 15 results without scrolling */}
       <div
         id="prediction-history-card"
-        className="rounded-xl sm:rounded-2xl p-2.5 sm:p-4 backdrop-blur-md flex flex-col justify-between shadow-2xl transition-colors border"
+        className="rounded-xl sm:rounded-2xl p-3 sm:p-5 backdrop-blur-md flex flex-col justify-between shadow-2xl transition-colors border"
         style={{
           background: cardBg,
           borderColor: border,
         }}
       >
         {/* Stream Header */}
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-white/5">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <HistoryIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400 shrink-0" />
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-2.5 border-b border-white/5">
+          <div className="flex items-center gap-2">
+            <HistoryIcon className="w-4 h-4 text-cyan-400 shrink-0" />
             <h2 className="text-xs sm:text-sm font-bold font-mono text-white uppercase tracking-wider">
               HISTORICAL AUDIT STREAM
             </h2>
-            <span className="text-[10px] sm:text-xs text-[#888888] font-mono">
-              ({historyRecords.length})
+            <span className="text-[10px] sm:text-xs text-cyan-400 font-mono font-bold bg-cyan-950/80 border border-cyan-700/60 px-2 py-0.5 rounded shadow-sm">
+              ALL 15 DRAWS • FULL VIEW
             </span>
           </div>
 
@@ -198,7 +208,7 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
               id="reset-stream-btn"
               onClick={handleReset}
               title="Refresh and recalculate audit stream"
-              className="text-[10px] sm:text-[11px] font-mono text-[#888888] hover:text-white flex items-center gap-1 px-2 py-1 rounded bg-[#0b1016] hover:bg-[#151f2b] border border-[#1e293b] cursor-pointer transition-colors"
+              className="text-[10px] sm:text-[11px] font-mono text-[#888888] hover:text-white flex items-center gap-1 px-2.5 py-1 rounded bg-[#0b1016] hover:bg-[#151f2b] border border-[#1e293b] cursor-pointer transition-colors"
             >
               <RotateCcw className="w-3 h-3 text-cyan-400" />
               <span className="hidden xs:inline sm:inline">RESET</span>
@@ -212,7 +222,7 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
                 placeholder="Draw #..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-6 pr-2 py-0.5 sm:py-1 rounded bg-[#070707] border border-[#222222] text-[10px] sm:text-[11px] font-mono text-[#E0E0E0] placeholder-[#555555] focus:outline-none focus:border-cyan-400 w-20 xs:w-24 sm:w-32"
+                className="pl-6 pr-2 py-1 rounded bg-[#070707] border border-[#222222] text-[10px] sm:text-[11px] font-mono text-[#E0E0E0] placeholder-[#555555] focus:outline-none focus:border-cyan-400 w-24 sm:w-32"
               />
             </div>
 
@@ -220,7 +230,7 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
               id="export-csv-btn"
               onClick={exportCSV}
               title="Export CSV Audit Telemetry"
-              className="flex items-center gap-1 px-2 py-1 bg-[#0b1016] hover:bg-[#151f2b] border border-[#1e293b] text-[#E0E0E0] rounded text-[10px] sm:text-[11px] font-mono cursor-pointer transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 bg-[#0b1016] hover:bg-[#151f2b] border border-[#1e293b] text-[#E0E0E0] rounded text-[10px] sm:text-[11px] font-mono cursor-pointer transition-colors"
             >
               <Download className="w-3 h-3 text-emerald-400" />
               <span className="hidden sm:inline">CSV</span>
@@ -229,10 +239,10 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
         </div>
 
         {/* Filter Quick Tabs */}
-        <div className="flex items-center gap-1 mb-2 bg-[#070c12] p-1 rounded-lg border border-[#16202c] text-[10px] sm:text-[11px] font-mono">
+        <div className="flex items-center gap-1.5 mb-3 bg-[#070c12] p-1 rounded-lg border border-[#16202c] text-[10px] sm:text-[11px] font-mono">
           {(
             [
-              { id: 'all', label: 'All' },
+              { id: 'all', label: 'All (15 Draws)' },
               { id: 'jackpots', label: 'Jackpots 🎗' },
               { id: 'wins', label: 'Wins ✓' },
               { id: 'losses', label: 'Losses ⊗' },
@@ -244,7 +254,7 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
                 soundFx.playClick();
                 setFilter(f.id);
               }}
-              className={`flex-1 py-1 px-1 sm:px-2 rounded text-center transition-colors cursor-pointer truncate ${
+              className={`flex-1 py-1 px-1.5 sm:px-2.5 rounded text-center transition-colors cursor-pointer truncate ${
                 filter === f.id
                   ? 'bg-cyan-500 text-black font-bold shadow-[0_0_10px_rgba(6,182,212,0.4)]'
                   : 'text-[#888888] hover:text-white'
@@ -255,10 +265,10 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
           ))}
         </div>
 
-        {/* Compact Table Container with ZERO horizontal slide needed */}
-        <div className="relative overflow-x-hidden overflow-y-auto max-h-[350px] sm:max-h-[440px] border border-[#151f2c] rounded-xl bg-[#04080c]">
+        {/* Expanded Large Table Container - All 15 results rendered cleanly with NO internal scrolling needed */}
+        <div className="relative overflow-x-hidden border border-[#151f2c] rounded-xl bg-[#04080c] shadow-lg">
           {filtered.length === 0 ? (
-            <div className="p-6 text-center text-[#666666] text-xs font-mono">
+            <div className="p-8 text-center text-[#666666] text-xs font-mono">
               NO DRAW RECORDS MATCHING FILTER. WAITING FOR NEXT RESULT STREAM.
             </div>
           ) : (
@@ -270,17 +280,17 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
                 <col className="w-[15%] sm:w-[16%]" />
                 <col className="w-[18%] sm:w-[20%]" />
               </colgroup>
-              <thead className="sticky top-0 bg-[#070c12] border-b border-[#16202c] text-[#888888] text-[10px] sm:text-[11px] tracking-wider uppercase z-10 shadow-sm">
+              <thead className="bg-[#070c12] border-b border-[#16202c] text-[#888888] text-[10px] sm:text-[11px] tracking-wider uppercase shadow-sm">
                 <tr>
-                  <th className="py-2 px-1.5 sm:px-3 font-bold">DRAW</th>
-                  <th className="py-2 px-1 sm:px-2 font-bold">RESULT</th>
-                  <th className="py-2 px-1 sm:px-2 font-bold">PREDICT</th>
-                  <th className="py-2 px-0.5 sm:px-1 font-bold text-center">LVL</th>
-                  <th className="py-2 px-1 sm:px-2 font-bold text-center">STATUS</th>
+                  <th className="py-2.5 px-2 sm:px-3 font-bold">DRAW</th>
+                  <th className="py-2.5 px-1.5 sm:px-2 font-bold">RESULT</th>
+                  <th className="py-2.5 px-1.5 sm:px-2 font-bold">PREDICT</th>
+                  <th className="py-2.5 px-1 sm:px-1.5 font-bold text-center">LVL</th>
+                  <th className="py-2.5 px-1.5 sm:px-2 font-bold text-center">STATUS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#0f1722]">
-                {filtered.map((rec) => {
+                {displayRecords.map((rec) => {
                   const num = rec.actualNumber;
                   const drawShort = rec.issueNumber.slice(-4);
 
@@ -324,9 +334,10 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
                     );
                   }
 
-                  // Status Badge - compact & crystal clear
-                  const isJackpot = rec.status === 'JACKPOT';
-                  const isWin = rec.status === 'WIN' || (rec.isWin && !isJackpot);
+                  // Rigorous Ground-Truth Status Verification: Win is Win, Loss is Loss, Jackpot is Jackpot
+                  const actualCalculatedSize: WinGoSize = num >= 5 ? 'BIG' : 'SMALL';
+                  const isJackpot = num === rec.primaryNum || num === rec.hedgeNum || rec.status === 'JACKPOT';
+                  const isWin = !isJackpot && (actualCalculatedSize === rec.predictedSize || rec.status === 'WIN');
 
                   let statusBadge;
                   if (isJackpot) {
@@ -356,23 +367,27 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
                   return (
                     <tr
                       key={rec.issueNumber}
-                      className="hover:bg-[#0a121c] transition-colors border-b border-[#0e1622] group"
+                      onClick={() => onSelectRecord?.(rec)}
+                      className={`hover:bg-[#0a121c] transition-colors border-b border-[#0e1622] group ${
+                        onSelectRecord ? 'cursor-pointer' : ''
+                      }`}
+                      title={onSelectRecord ? 'Click to view Pop-Up & hear Voice Announcement' : undefined}
                     >
                       {/* DRAW: 4-digit period */}
-                      <td className="py-1.5 sm:py-2 px-1.5 sm:px-3 font-bold text-white font-mono text-[11px] sm:text-xs">
+                      <td className="py-2.5 sm:py-3 px-2 sm:px-3.5 font-bold text-white font-mono text-[11px] sm:text-xs">
                         #{drawShort}
                       </td>
 
                       {/* RESULT: Circular badge with number + SMALL / BIG */}
-                      <td className="py-1.5 sm:py-2 px-1 sm:px-2">
-                        <div className="flex items-center gap-1 sm:gap-1.5">
+                      <td className="py-2.5 sm:py-3 px-1.5 sm:px-2.5">
+                        <div className="flex items-center gap-1.5 sm:gap-2">
                           <span
-                            className={`inline-flex items-center justify-center w-5 h-5 sm:w-5.5 sm:h-5.5 rounded-full font-black text-[10px] sm:text-xs shrink-0 shadow ${ballStyle}`}
+                            className={`inline-flex items-center justify-center w-5.5 h-5.5 sm:w-6 sm:h-6 rounded-full font-black text-[11px] sm:text-xs shrink-0 shadow ${ballStyle}`}
                           >
                             {num}
                           </span>
                           <span
-                            className={`font-mono font-bold text-[10px] sm:text-xs ${
+                            className={`font-mono font-bold text-[11px] sm:text-xs ${
                               isResultBig ? 'text-[#f59e0b]' : 'text-[#38bdf8]'
                             }`}
                           >
@@ -382,10 +397,10 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
                       </td>
 
                       {/* PREDICTION: SMALL [0/5] or BIG [8/4] */}
-                      <td className="py-1.5 sm:py-2 px-1 sm:px-2 font-mono">
-                        <div className="flex flex-col sm:flex-row sm:items-baseline gap-0 sm:gap-1 leading-tight">
+                      <td className="py-2.5 sm:py-3 px-1.5 sm:px-2.5 font-mono">
+                        <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-1.5 leading-tight">
                           <span
-                            className={`font-bold text-[10px] sm:text-xs ${
+                            className={`font-bold text-[11px] sm:text-xs ${
                               isPredBig ? 'text-[#f59e0b]' : 'text-[#38bdf8]'
                             }`}
                           >
@@ -398,12 +413,12 @@ export const PredictionHistoryTable: React.FC<PredictionHistoryTableProps> = ({
                       </td>
 
                       {/* LEVEL: L1, L2, L3 */}
-                      <td className="py-1.5 sm:py-2 px-0.5 sm:px-1 text-center">
+                      <td className="py-2.5 sm:py-3 px-1 sm:px-1.5 text-center">
                         {levelBadge}
                       </td>
 
                       {/* STATUS: 🎗 JACKPOT / ✓ WIN / ⊗ LOSS */}
-                      <td className="py-1.5 sm:py-2 px-1 sm:px-2 text-center">
+                      <td className="py-2.5 sm:py-3 px-1.5 sm:px-2.5 text-center">
                         {statusBadge}
                       </td>
                     </tr>

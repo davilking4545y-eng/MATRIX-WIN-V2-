@@ -16,7 +16,7 @@ import {
   AlertTriangle,
   Crown,
 } from 'lucide-react';
-import { authenticateKey, getOrCreateDeviceId } from '../services/authService';
+import { authenticateKey, getOrCreateDeviceId, MASTER_KEY } from '../services/authService';
 import { AuthSession, ThemeConfig } from '../types';
 import { soundFx, speakWelcomeMatrix } from '../utils/audio';
 import { triggerConfetti } from '../utils/confetti';
@@ -43,7 +43,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ activeTheme, onLoginSucces
 
   useEffect(() => {
     // Detect if user typed or pasted the master key
-    if (accessKey.trim().toUpperCase() === 'MATRIXV2743235') {
+    if (accessKey.trim().toUpperCase() === MASTER_KEY) {
       setIsOwnerKeyDetected(true);
     } else {
       setIsOwnerKeyDetected(false);
@@ -86,8 +86,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ activeTheme, onLoginSucces
 
       if (result.success && result.session) {
         soundFx.playAccessGranted();
-        // Trigger voice announcement: "WELCOME TO MATRIX WIN V2"
-        speakWelcomeMatrix();
+        // Trigger voice announcement: special for Owner vs Member
+        const isOwner = result.session.role === 'owner';
+        speakWelcomeMatrix(isOwner);
 
         // Celebration confetti burst
         triggerConfetti({

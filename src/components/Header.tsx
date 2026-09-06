@@ -12,6 +12,7 @@ import {
   LogOut,
   Crown,
   Key,
+  Users,
 } from 'lucide-react';
 import { soundFx } from '../utils/audio';
 import { ThemeConfig, AuthSession } from '../types';
@@ -32,6 +33,7 @@ interface HeaderProps {
   activeTheme: ThemeConfig;
   onOpenThemeModal: () => void;
   authSession?: AuthSession | null;
+  activeUsersCount?: number;
   onLogout?: () => void;
 }
 
@@ -51,6 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeTheme,
   onOpenThemeModal,
   authSession,
+  activeUsersCount,
   onLogout,
 }) => {
   const mm = String(Math.floor(countdownSeconds / 60)).padStart(2, '0');
@@ -78,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Terminal className="w-5 h-5 stroke-[2.5]" />
         </div>
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
             <h1
               className="text-base sm:text-lg font-black tracking-wider font-mono flex items-center gap-1.5"
               style={{ color: activeTheme.primary }}
@@ -86,6 +89,27 @@ export const Header: React.FC<HeaderProps> = ({
               <span>MATRIX WIN V2</span>
               <span className="text-white drop-shadow-sm">CORE</span>
             </h1>
+
+            {/* OWNER EXCLUSIVE: Top Left Active Users Count - ONLY visible when logged in with Owner Key */}
+            {authSession?.role === 'owner' && (
+              <div
+                id="owner-live-users-badge"
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] sm:text-[11px] font-mono font-bold bg-[#041d13] border-emerald-500/60 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)] transition-all"
+                title="Real-time Active Users (Owner Exclusive Radar)"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="tracking-wide">
+                  <strong className="text-white text-xs">{activeUsersCount ?? 1}</strong> ONLINE
+                </span>
+                <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase font-semibold">
+                  OWNER
+                </span>
+              </div>
+            )}
           </div>
 
           <p className="text-[11px] text-[#888888] font-mono hidden sm:flex items-center gap-2">
